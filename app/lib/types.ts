@@ -74,6 +74,8 @@ export interface LPProject {
   name: string;
   concept: ConceptSheet;
   tone: ToneType;
+  brandVoice: string;         // ブランドボイス・文体サンプル
+  referenceLp: string;        // 参考LP（HTML or テキスト）
   pages: LPPage[];
   createdAt: string;
   updatedAt: string;
@@ -82,10 +84,83 @@ export interface LPProject {
 export interface LPPage {
   id: string;
   pageType: PageType;
+  rawMaterial: string;        // 素材テキスト（原稿・メモをそのまま貼る）
+  ctaText: string;            // CTAボタンの文言
+  faq: string;                // FAQ（Q&Aペア）
+  photoInstructions: string;  // 写真配置の指示
+  excludeSections: string[];  // 除外するセクション
   generatedHtml: string;
   generatedText: string;
   generatedAt?: string;
+  generationHistory?: { html: string; text: string; generatedAt: string }[];
 }
+
+// ページタイプ別のセクション定義（ON/OFF用）
+export const PAGE_SECTIONS: Record<PageType, { id: string; label: string }[]> = {
+  sales: [
+    { id: 'hero', label: 'ファーストビュー' },
+    { id: 'empathy', label: '共感導入' },
+    { id: 'future', label: '理想の未来提示' },
+    { id: 'course', label: '講座の紹介' },
+    { id: 'curriculum', label: 'カリキュラム紹介' },
+    { id: 'target', label: 'こんな方におすすめ' },
+    { id: 'offer', label: '受講の決め手（特典・価格）' },
+    { id: 'payment', label: '決済フォームエリア' },
+    { id: 'faq', label: 'よくある質問' },
+    { id: 'testimonials', label: 'お客様の声・実績' },
+    { id: 'cta', label: '申込方法と行動喚起' },
+  ],
+  optin: [
+    { id: 'hero', label: 'キャッチコピー' },
+    { id: 'pain', label: 'こんな悩みありませんか？' },
+    { id: 'offer', label: '無料オファーの内容' },
+    { id: 'benefits', label: 'ベネフィット' },
+    { id: 'form', label: '登録フォーム＋CTA' },
+    { id: 'profile', label: '自己紹介' },
+  ],
+  seminar: [
+    { id: 'hero', label: 'キャッチコピー' },
+    { id: 'pain', label: 'こんな悩みありませんか？' },
+    { id: 'benefits', label: 'セミナーで得られること' },
+    { id: 'details', label: 'セミナー詳細' },
+    { id: 'profile', label: '講師紹介' },
+    { id: 'testimonials', label: '参加者の声' },
+    { id: 'bonus', label: '参加特典' },
+    { id: 'faq', label: 'よくある質問' },
+    { id: 'cta', label: '申込フォーム' },
+  ],
+  consultation: [
+    { id: 'hero', label: 'キャッチコピー' },
+    { id: 'pain', label: 'こんなお悩みありませんか？' },
+    { id: 'benefits', label: '相談で得られること' },
+    { id: 'flow', label: '相談の流れ' },
+    { id: 'profile', label: '担当者紹介' },
+    { id: 'testimonials', label: '相談者の声' },
+    { id: 'faq', label: 'よくある質問' },
+    { id: 'cta', label: '申込フォーム' },
+  ],
+  vsl: [
+    { id: 'hero', label: 'ヘッドライン' },
+    { id: 'video', label: '動画エリア' },
+    { id: 'benefits', label: 'ベネフィットまとめ' },
+    { id: 'testimonials', label: 'お客様の声' },
+    { id: 'cta', label: 'CTA' },
+  ],
+  entry_form: [
+    { id: 'hero', label: 'キャッチコピー' },
+    { id: 'overview', label: 'プログラム概要' },
+    { id: 'target', label: '対象者' },
+    { id: 'benefits', label: '得られるもの' },
+    { id: 'process', label: '選考プロセス' },
+    { id: 'form', label: 'エントリーフォーム' },
+    { id: 'faq', label: 'よくある質問' },
+  ],
+  thankyou: [
+    { id: 'thanks', label: 'お礼メッセージ' },
+    { id: 'nextstep', label: '次のステップ' },
+    { id: 'action', label: '追加アクション' },
+  ],
+};
 
 // ── Helpers ──
 
@@ -131,7 +206,7 @@ export const COMMON_FIELDS: ConceptField[] = [
   { key: 'painPoints', label: '悩み・痛み', placeholder: '例: 集客に時間がかかりすぎる、SNSを頑張っても成約につながらない、差別化できない', rows: 3 },
   { key: 'desiredFuture', label: '理想の未来・得られる成果', placeholder: '例: 毎月安定して見込み客が集まる、自信を持ってセールスできる', rows: 3 },
   { key: 'differentiator', label: '差別化ポイント・あなたの強み', placeholder: '例: 広告費ゼロのオーガニック特化、10年の実績、再現性の高いテンプレート付き', rows: 2 },
-  { key: 'socialProof', label: '実績・お客様の声', placeholder: '例: 受講生120名超、「人生が変わった」という声多数', rows: 3 },
+  { key: 'socialProof', label: '実績・お客様の声', placeholder: '例: 受講生120名超、「人生が変わった」という声多数\n\n※ 詳しく書くほど精度が上がります。名前・肩書・ビフォーアフター・感想をそのまま貼ってください', rows: 5 },
 ];
 
 // ページタイプ別のフィールド
@@ -154,11 +229,11 @@ export const PAGE_SPECIFIC_FIELDS: Record<PageType, ConceptField[]> = {
   sales: [
     { key: 'offerName', label: '講座名（商品・サービス名）', placeholder: '例: ローンチマスター養成講座', rows: 1 },
     { key: 'offerDescription', label: '講座の目的とゴール', placeholder: '例: 自分の講座を作り、最初のローンチで30万円以上の売上を達成すること', rows: 2 },
-    { key: 'curriculum', label: 'カリキュラム・ステップ内容', placeholder: '例:\nStep1: コンセプト設計\nStep2: コンテンツ作成\nStep3: LP作成\nStep4: 集客設計\n...', rows: 5 },
+    { key: 'curriculum', label: 'カリキュラム・ステップ内容', placeholder: '例:\n■ Step1: コンセプト設計\n説明文...\n\n■ Step2: コンテンツ作成\n説明文...\n\n※ 各ステップの見出し＋説明を詳しく書くとそのまま反映されます', rows: 10 },
     { key: 'format', label: '受講形式', placeholder: '例: オンライン動画（全6回）＋ワークシート＋個別コンサル3回', rows: 2 },
     { key: 'regularPrice', label: '通常価格', placeholder: '例: 498,000円（税込）', rows: 1 },
     { key: 'price', label: '今回の価格', placeholder: '例: モニター価格 298,000円（税込）、先着20名限定', rows: 1 },
-    { key: 'bonuses', label: '受講特典', placeholder: '例: 限定テンプレート集、1ヶ月間LINEサポート、過去セミナー動画アーカイブ', rows: 3 },
+    { key: 'bonuses', label: '受講特典', placeholder: '例:\n🎁 1. テンプレート集\n🎁 2. LINEサポート1ヶ月\n🎁 3. 過去セミナー動画アーカイブ\n\n※ 一つずつ書くとそのままリスト化されます', rows: 8 },
     { key: 'guarantee', label: '保証', placeholder: '例: 30日間全額返金保証', rows: 1 },
     { key: 'deadline', label: '募集期限・限定性', placeholder: '例: 3日間限定、先着20名、特典は今回のみ', rows: 1 },
   ],

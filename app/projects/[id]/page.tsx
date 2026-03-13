@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Save, Check, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Save, Check, Plus, Trash2, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import {
   LPProject, PageType, PAGE_TYPE_META, ToneType, TONE_META,
   ConceptSheet, ConceptField, LPPage,
@@ -10,6 +10,7 @@ import {
 } from '@/app/lib/types';
 import { getProject, updateProject } from '@/app/lib/store';
 import SheetImporter from '@/app/components/SheetImporter';
+import PdfUploader from '@/app/components/PdfUploader';
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -24,9 +25,37 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     setProject(p);
   }, [id, router]);
 
+  const handleDownloadAll = () => {
+    if (!project) return;
+    const generatedPages = project.pages.filter(p => p.generatedHtml);
+    generatedPages.forEach(page => {
+      const meta = PAGE_TYPE_META[page.pageType];
+      const blob = new Blob([page.generatedHtml], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project.name}_${meta.label}.html`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  };
+
+  const handleExportPdf = (pageObj: LPPage) => {
+    if (!project || !pageObj.generatedHtml) return;
+    const meta = PAGE_TYPE_META[pageObj.pageType];
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) { alert('ポップアップがブロックされています。許可してください。'); return; }
+    printWindow.document.write(pageObj.generatedHtml);
+    printWindow.document.title = `${project.name}_${meta.label}`;
+    printWindow.document.close();
+    printWindow.onload = () => {
+      printWindow.print();
+    };
+  };
+
   const handleSave = () => {
     if (!project) return;
-    updateProject(id, { concept: project.concept, tone: project.tone, pages: project.pages, name: project.name });
+    updateProject(id, { concept: project.concept, tone: project.tone, pages: project.pages, name: project.name, brandVoice: project.brandVoice, referenceLp: project.referenceLp });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -41,6 +70,11 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       const newPage: LPPage = {
         id: crypto.randomUUID(),
         pageType,
+        rawMaterial: '',
+        ctaText: '',
+        faq: '',
+        photoInstructions: '',
+        excludeSections: [],
         generatedHtml: '',
         generatedText: '',
       };
@@ -49,7 +83,25 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   };
 
   const removePage = (pageId: string) => {
+    const page = project?.pages.find(p => p.id === pageId);
+    const hasContent = page && (page.generatedHtml || page.generatedText);
+    const msg = hasContent
+      ? `「${PAGE_TYPE_META[page.pageType].label}」を削除しますか？\n生成済みの内容も失われます。`
+      : 'このページを削除しますか？';
+    if (!confirm(msg)) return;
     setProject(prev => prev ? { ...prev, pages: prev.pages.filter(p => p.id !== pageId) } : prev);
+  };
+
+  const movePage = (pageId: string, direction: -1 | 1) => {
+    setProject(prev => {
+      if (!prev) return prev;
+      const pages = [...prev.pages];
+      const idx = pages.findIndex(p => p.id === pageId);
+      const newIdx = idx + direction;
+      if (newIdx < 0 || newIdx >= pages.length) return prev;
+      [pages[idx], pages[newIdx]] = [pages[newIdx], pages[idx]];
+      return { ...prev, pages };
+    });
   };
 
   if (!project) return null;
@@ -73,13 +125,25 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
               <h1 className="text-base font-medium">{project.name}</h1>
             </div>
           </div>
-          <button
-            onClick={handleSave}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F5F3F0] border border-[#D5D0C8] rounded text-sm text-[#666660] hover:border-[#B8975A] transition-colors"
-          >
-            {saved ? <Check size={13} className="text-[#7B9E87]" /> : <Save size={13} />}
-            {saved ? '保存済み' : '保存'}
-          </button>
+          <div className="flex items-center gap-2">
+            {project.pages.some(p => p.generatedHtml) && (
+              <button
+                onClick={handleDownloadAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F5F3F0] border border-[#D5D0C8] rounded text-sm text-[#666660] hover:border-[#B8975A] transition-colors"
+                title="全ページダウンロード"
+              >
+                <Download size={13} />
+                一括DL
+              </button>
+            )}
+            <button
+              onClick={handleSave}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F5F3F0] border border-[#D5D0C8] rounded text-sm text-[#666660] hover:border-[#B8975A] transition-colors"
+            >
+              {saved ? <Check size={13} className="text-[#7B9E87]" /> : <Save size={13} />}
+              {saved ? '保存済み' : '保存'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -88,7 +152,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         <div>
           <h2 className="text-base font-medium mb-3 pb-2 border-b border-[#E5E0D8]">LPページ一覧</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {project.pages.map(page => {
+            {project.pages.map((page, pageIndex) => {
               const meta = PAGE_TYPE_META[page.pageType];
               const hasContent = !!page.generatedHtml || !!page.generatedText;
               return (
@@ -97,17 +161,49 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                   className="bg-white border border-[#E5E0D8] rounded-lg p-4 hover:border-[#B8975A] transition-colors cursor-pointer group relative"
                   onClick={() => router.push(`/projects/${id}/pages/${page.id}`)}
                 >
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removePage(page.id); }}
-                    className="absolute top-2 right-2 p-1 text-[#AAAAAA] hover:text-[#C47A5A] opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <Trash2 size={12} />
-                  </button>
+                  <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {project.pages.length > 1 && (
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); movePage(page.id, -1); }}
+                          disabled={pageIndex === 0}
+                          className="p-1 text-[#AAAAAA] hover:text-[#B8975A] disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="前へ"
+                        >
+                          <ChevronUp size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); movePage(page.id, 1); }}
+                          disabled={pageIndex === project.pages.length - 1}
+                          className="p-1 text-[#AAAAAA] hover:text-[#B8975A] disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="後へ"
+                        >
+                          <ChevronDown size={12} />
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); removePage(page.id); }}
+                      className="p-1 text-[#AAAAAA] hover:text-[#C47A5A]"
+                      title="削除"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                   <div className="text-2xl mb-2">{meta.icon}</div>
                   <div className="text-sm font-medium">{meta.label}</div>
-                  <div className="text-xs mt-1">
+                  <div className="text-xs mt-1 flex items-center gap-2">
                     {hasContent ? (
-                      <span className="text-[#7B9E87]">生成済み</span>
+                      <>
+                        <span className="text-[#7B9E87]">生成済み</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleExportPdf(page); }}
+                          className="text-[10px] text-[#888880] hover:text-[#B8975A] underline transition-colors"
+                          title="PDFとして保存（印刷ダイアログ）"
+                        >
+                          PDF保存
+                        </button>
+                      </>
                     ) : (
                       <span className="text-[#AAAAAA]">未生成</span>
                     )}
@@ -139,6 +235,60 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                 {meta.label}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Brand voice & Reference LP */}
+        <div>
+          <h2 className="text-base font-medium mb-3 pb-2 border-b border-[#E5E0D8]">
+            ブランドボイス・参考LP
+            <span className="text-xs text-[#B8975A] font-normal ml-2">任意 · 設定すると全ページに反映</span>
+          </h2>
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm text-[#666660]">ブランドボイス（文体サンプル）</label>
+                <PdfUploader
+                  compact
+                  label="PDFから読み込む"
+                  onExtract={text => setProject(prev => prev ? { ...prev, brandVoice: (prev.brandVoice || '') + '\n\n' + text } : prev)}
+                />
+              </div>
+              <textarea
+                value={project.brandVoice || ''}
+                onChange={e => setProject(prev => prev ? { ...prev, brandVoice: e.target.value } : prev)}
+                placeholder={'過去に書いたLPやメルマガの文章を貼ってください。AIがあなたの文体を学習して再現します。\n\n例:\n「自分にもできるのかな」\nそう感じるのは、"今の自分"を超えようとしている証拠です。\nこの講座では、ただ学ぶだけでなく...'}
+                rows={5}
+                className="w-full px-4 py-2.5 bg-white border border-[#E5E0D8] rounded-lg text-sm focus:outline-none focus:border-[#B8975A] resize-y"
+              />
+              {(project.brandVoice || '').length > 3000 && (
+                <p className="text-xs text-[#C47A5A] mt-1">
+                  {(project.brandVoice || '').length}文字入力中（3,000文字を超えた分は生成時にカットされます）
+                </p>
+              )}
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm text-[#666660]">参考LP（トーンやレイアウトの参考にしたいLP）</label>
+                <PdfUploader
+                  compact
+                  label="PDFから読み込む"
+                  onExtract={text => setProject(prev => prev ? { ...prev, referenceLp: (prev.referenceLp || '') + '\n\n' + text } : prev)}
+                />
+              </div>
+              <textarea
+                value={project.referenceLp || ''}
+                onChange={e => setProject(prev => prev ? { ...prev, referenceLp: e.target.value } : prev)}
+                placeholder="参考にしたいLPのHTMLやテキストを貼ってください。PDFのアップロードもできます。「このLPのような雰囲気で」という指示として使われます。"
+                rows={4}
+                className="w-full px-4 py-2.5 bg-white border border-[#E5E0D8] rounded-lg text-sm focus:outline-none focus:border-[#B8975A] resize-y"
+              />
+              {(project.referenceLp || '').length > 5000 && (
+                <p className="text-xs text-[#C47A5A] mt-1">
+                  {(project.referenceLp || '').length}文字入力中（5,000文字を超えた分は生成時にカットされます）
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
